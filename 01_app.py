@@ -11,30 +11,29 @@ st.set_page_config(
     layout="wide"
 )
 
+# OpenAI 클라이언트
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
 st.title("👁️ SeeEasy")
-st.subheader("AI 이미지 설명 도우미")
+st.write("시각장애인을 위한 AI 이미지 설명 도우미")
 
-uploaded = st.file_uploader(
-    "사진을 업로드하세요",
-    type=["jpg", "jpeg", "png"]
+uploaded_file = st.file_uploader(
+    "이미지를 업로드하세요",
+    type=["png", "jpg", "jpeg"]
 )
 
-if uploaded:
+if uploaded_file:
+    image = Image.open(uploaded_file)
 
-    image = Image.open(uploaded)
-
-    st.image(image, width=450)
+    st.image(image, caption="업로드한 이미지", use_container_width=True)
 
     buffered = BytesIO()
     image.save(buffered, format="PNG")
+    image_base64 = base64.b64encode(buffered.getvalue()).decode()
 
-    img_base64 = base64.b64encode(buffered.getvalue()).decode()
+    if st.button("이미지 설명 생성"):
 
-    if st.button("AI 설명 생성"):
-
-        with st.spinner("이미지를 분석하는 중..."):
+        with st.spinner("AI가 이미지를 분석하는 중입니다..."):
 
             response = client.responses.create(
                 model="gpt-4.1",
@@ -44,11 +43,10 @@ if uploaded:
                         "content": [
                             {
                                 "type": "input_text",
-                                "text":
-"""
-당신은 시각장애인을 위한 안내 도우미입니다.
+                                "text": """
+당신은 시각장애인을 돕는 AI입니다.
 
-다음 형식으로 설명하세요.
+다음 형식으로 답변하세요.
 
 ## 전체 상황
 
@@ -63,23 +61,21 @@ if uploaded:
                             },
                             {
                                 "type": "input_image",
-                                "image_url": f"data:image/png;base64,{img_base64}"
+                                "image_url": f"data:image/png;base64,{image_base64}"
                             }
                         ]
                     }
                 ]
             )
 
-        answer = response.output_text
+        result = response.output_text
 
-        st.success("분석 완료")
+        st.success("분석 완료!")
+        st.markdown(result)
 
-        st.markdown(answer)
+        st.session_state["image_description"] = result
 
-        st.session_state["answer"] = answer
-
-
-if "answer" in st.session_state:
+if "image_description" in st.session_state:
 
     st.divider()
 
@@ -92,12 +88,11 @@ if "answer" in st.session_state:
         response = client.responses.create(
             model="gpt-4.1",
             input=f"""
-이미지 설명
+다음은 이미지 설명입니다.
 
-{st.session_state['answer']}
+{st.session_state['image_description']}
 
-질문
-
+질문:
 {question}
 """
         )
