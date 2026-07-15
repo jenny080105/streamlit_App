@@ -4,6 +4,10 @@ import folium
 from streamlit_folium import st_folium
 
 
+# =================================
+# 기본 설정
+# =================================
+
 st.set_page_config(
     page_title="서울 공영주차장 안내",
     page_icon="🅿️",
@@ -11,10 +15,12 @@ st.set_page_config(
 )
 
 
-# -----------------------------
+# =================================
 # 디자인
-# -----------------------------
-st.markdown("""
+# =================================
+
+st.markdown(
+    """
 <style>
 
 .title {
@@ -24,36 +30,44 @@ st.markdown("""
 }
 
 .card {
-    background:#f5f7fa;
+    background:#f7f9fc;
     padding:20px;
     border-radius:15px;
     text-align:center;
-    box-shadow:0 2px 8px #ddd;
+    box-shadow:0 2px 10px #ddd;
+}
+
+.card h2 {
+    color:#1f4e79;
 }
 
 </style>
-""", unsafe_allow_html=True)
+""",
+    unsafe_allow_html=True
+)
 
 
 
-# -----------------------------
+# =================================
 # 제목
-# -----------------------------
+# =================================
+
 st.markdown(
     "<div class='title'>🅿️ 서울시 공영주차장 안내 서비스</div>",
     unsafe_allow_html=True
 )
 
 st.caption(
-    "구와 동을 선택하면 주변 공영주차장 정보를 확인할 수 있습니다."
+    "구와 동을 선택하면 주변 공영주차장 위치와 요금을 확인할 수 있습니다."
 )
 
 
 
-# -----------------------------
+# =================================
 # 파일 업로드
-# -----------------------------
-file = st.file_uploader(
+# =================================
+
+uploaded_file = st.file_uploader(
     "📂 공영주차장 CSV 업로드",
     type=["csv"]
 )
@@ -62,7 +76,7 @@ file = st.file_uploader(
 
 def load_csv(file):
 
-    for enc in [
+    for encoding in [
         "utf-8",
         "utf-8-sig",
         "cp949",
@@ -70,17 +84,16 @@ def load_csv(file):
     ]:
 
         try:
-
             file.seek(0)
 
             return pd.read_csv(
                 file,
-                encoding=enc
+                encoding=encoding
             )
 
         except:
 
-            pass
+            continue
 
 
     st.error(
@@ -91,21 +104,23 @@ def load_csv(file):
 
 
 
-if file:
+if uploaded_file:
 
 
-    df = load_csv(file)
+    df = load_csv(uploaded_file)
 
 
 
-    # -----------------------------
+    # =================================
     # 데이터 처리
-    # -----------------------------
+    # =================================
+
 
     df["위도"] = pd.to_numeric(
         df["위도"],
         errors="coerce"
     )
+
 
     df["경도"] = pd.to_numeric(
         df["경도"],
@@ -116,9 +131,10 @@ if file:
     df["기본 주차 요금"] = pd.to_numeric(
         df["기본 주차 요금"],
         errors="coerce"
-    ).fillna(0)
+    )
 
 
+    # 좌표 없는 데이터 제거
 
     df = df.dropna(
         subset=[
@@ -128,8 +144,31 @@ if file:
     )
 
 
+    # 요금 없는 경우 0 처리
 
-    # 구 추출
+    df["기본 주차 요금"] = (
+        df["기본 주차 요금"]
+        .fillna(0)
+    )
+
+
+    # ⭐ 중복 주차장 제거
+
+    df = df.drop_duplicates(
+        subset=[
+            "주차장명",
+            "주소",
+            "위도",
+            "경도"
+        ]
+    )
+
+
+
+    # =================================
+    # 구 / 동 생성
+    # =================================
+
 
     df["구"] = (
         df["주소"]
@@ -139,9 +178,6 @@ if file:
         )[0]
     )
 
-
-
-    # 동 추출
 
     df["동"] = (
         df["주소"]
@@ -153,14 +189,15 @@ if file:
 
 
 
-    # -----------------------------
-    # 통계 카드
-    # -----------------------------
+    # =================================
+    # 통계
+    # =================================
+
 
     total = len(df)
 
 
-    free = len(
+    free_count = len(
         df[
             df["유무료구분명"]
             .astype(str)
@@ -169,49 +206,51 @@ if file:
     )
 
 
-    paid = total-free
+    paid_count = total - free_count
 
 
 
-    a,b,c = st.columns(3)
+    c1,c2,c3 = st.columns(3)
 
 
-    with a:
 
-        st.markdown(
-            f"""
-            <div class="card">
-            <h2>{total}</h2>
-            전체 주차장
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-
-
-    with b:
+    with c1:
 
         st.markdown(
             f"""
-            <div class="card">
-            <h2>{free}</h2>
-            무료
-            </div>
-            """,
+<div class="card">
+<h2>{total}</h2>
+전체 주차장
+</div>
+""",
             unsafe_allow_html=True
         )
 
 
 
-    with c:
+    with c2:
 
         st.markdown(
             f"""
-            <div class="card">
-            <h2>{paid}</h2>
-            유료
-            </div>
-            """,
+<div class="card">
+<h2>{free_count}</h2>
+무료 주차장
+</div>
+""",
+            unsafe_allow_html=True
+        )
+
+
+
+    with c3:
+
+        st.markdown(
+            f"""
+<div class="card">
+<h2>{paid_count}</h2>
+유료 주차장
+</div>
+""",
             unsafe_allow_html=True
         )
 
@@ -221,12 +260,13 @@ if file:
 
 
 
-    # -----------------------------
+    # =================================
     # 사이드바
-    # -----------------------------
+    # =================================
+
 
     st.sidebar.title(
-        "📍 지역 선택"
+        "📍 검색 조건"
     )
 
 
@@ -293,9 +333,10 @@ if file:
 
 
 
-    # -----------------------------
-    # 필터 적용
-    # -----------------------------
+    # =================================
+    # 필터링
+    # =================================
+
 
     result = df.copy()
 
@@ -348,13 +389,15 @@ if file:
 
 
 
-    # -----------------------------
+    # =================================
     # 지도
-    # -----------------------------
+    # =================================
+
 
     st.subheader(
-        "🗺️ 주차장 지도"
+        "🗺️ 공영주차장 지도"
     )
+
 
 
     if len(result) == 0:
@@ -368,15 +411,21 @@ if file:
 
 
     center = [
+
         result["위도"].mean(),
+
         result["경도"].mean()
+
     ]
 
 
 
     m = folium.Map(
+
         location=center,
+
         zoom_start=14
+
     )
 
 
@@ -386,48 +435,49 @@ if file:
 
         if "무료" in str(row["유무료구분명"]):
 
-            color="green"
+            marker_color = "green"
 
         else:
 
-            color="red"
+            marker_color = "red"
 
 
 
-        popup=f"""
+        popup = f"""
 
-        <b>{row['주차장명']}</b>
-        <br><br>
+<b>{row['주차장명']}</b>
+<br><br>
 
-        📍 주소 :
-        {row['주소']}
+📍 주소<br>
+{row['주소']}
 
-        <br><br>
+<br><br>
 
-        💰 기본요금 :
-        {row['기본 주차 요금']}원
+💰 기본요금<br>
+{row['기본 주차 요금']}원
 
-        <br><br>
+<br><br>
 
-        🚗 주차면 :
-        {row['총 주차면']}면
+🚗 주차면수<br>
+{row['총 주차면']}면
 
-        <br><br>
+<br><br>
 
-        ⏰ 운영 :
-        {row['평일 운영 시작시각(HHMM)']}
-        -
-        {row['평일 운영 종료시각(HHMM)']}
+🅿️ 구분<br>
+{row['유무료구분명']}
 
-        """
+"""
 
 
 
         folium.Marker(
 
             location=[
+
                 row["위도"],
+
                 row["경도"]
+
             ],
 
             tooltip=row["주차장명"],
@@ -435,7 +485,11 @@ if file:
             popup=popup,
 
             icon=folium.Icon(
-                color=color
+
+                color=marker_color,
+
+                icon="info-sign"
+
             )
 
         ).add_to(m)
@@ -443,32 +497,46 @@ if file:
 
 
     st_folium(
+
         m,
+
         width=1200,
+
         height=600
+
     )
 
 
 
-    # -----------------------------
+    # =================================
     # 결과
-    # -----------------------------
+    # =================================
+
 
     st.subheader(
         f"📋 검색 결과 ({len(result)}개)"
     )
 
 
+
     st.dataframe(
 
         result[
+
             [
+
                 "주차장명",
+
                 "주소",
+
                 "유무료구분명",
+
                 "기본 주차 요금",
+
                 "총 주차면"
+
             ]
+
         ],
 
         use_container_width=True
