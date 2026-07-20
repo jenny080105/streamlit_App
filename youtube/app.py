@@ -7,7 +7,15 @@ from textblob import TextBlob
 import re
 import urllib.request
 
-# 1. 한글 폰트 설정 (Streamlit Cloud 환경 대응)
+# 1. 시스템 내부에 저장된 API Key 가져오기
+# .streamlit/secrets.toml 파일 또는 Streamlit Cloud 대시보드 Secrets 설정을 참고합니다.
+try:
+    API_KEY = st.secrets["YOUTUBE_API_KEY"]
+except KeyError:
+    st.error("⚠️ 시스템에 YOUTUBE_API_KEY 설정이 누락되었습니다. 관리자 설정을 확인해 주세요.")
+    st.stop()
+
+# 2. 한글 폰트 설정 (Streamlit Cloud 환경 대응)
 @st.cache_data
 def load_font():
     font_url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
@@ -20,7 +28,7 @@ try:
 except Exception:
     font_path = None
 
-# 2. 유튜브 댓글 수집 함수
+# 3. 유튜브 댓글 수집 함수
 def get_youtube_comments(api_key, video_id, max_count):
     youtube = build("youtube", "v3", developerKey=api_key)
     comments = []
@@ -51,9 +59,8 @@ def get_youtube_comments(api_key, video_id, max_count):
         st.error(f"API 호출 중 오류가 발생했습니다: {e}")
         return pd.DataFrame()
 
-# 3. 데이터 전처리 및 분석 함수
+# 4. 데이터 전처리 및 분석 함수
 def analyze_sentiment(text):
-    # 단순 텍스트 길이 및 영문 기준 감성 분석 (실제 한글 분석은 KoNLPy 등이 필요하나, 클라우드 의존성 상 TextBlob으로 대체 적용)
     analysis = TextBlob(text)
     if analysis.sentiment.polarity > 0:
         return "긍정"
@@ -63,16 +70,14 @@ def analyze_sentiment(text):
         return "중립"
 
 def clean_text(text):
-    # 한글, 공백을 제외한 특수문자 제거
     return re.sub(r"[^가-힣\s]", "", text)
 
-# 4. 스트림릿 UI 레이아웃
+# 5. 스트림릿 UI 레이아웃
 st.title("📊 유튜브 댓글 분석기")
 st.caption("유튜브 영상의 댓글을 수집하여 작성 추이, 반응도, 워드클라우드를 분석합니다.")
 
-# 사이드바 설정
-st.sidebar.header("설정")
-api_key = st.sidebar.text_input("YouTube API Key를 입력하세요", type="password")
+# 사이드바 설정 (API 입력란 제거)
+st.sidebar.header("분석 옵션 설정")
 video_url = st.sidebar.text_input("유튜브 영상 링크를 입력하세요")
 max_comments = st.sidebar.slider("수집할 댓글 개수 선택", min_value=10, max_value=500, value=100, step=10)
 
@@ -86,9 +91,7 @@ if video_url:
 
 # 메인 분석 로직
 if st.sidebar.button("분석 시작"):
-    if not api_key:
-        st.warning("API Key를 입력해주세요.")
-    elif not video_id:
+    if not video_id:
         st.warning("올바른 유튜브 링크를 입력해주세요.")
     else:
         with st.spinner("댓글을 수집하고 분석하는 중입니다..."):
@@ -96,8 +99,8 @@ if st.sidebar.button("분석 시작"):
             st.subheader("📺 분석 대상 영상")
             st.video(video_url)
             
-            # 데이터 수집
-            df = get_youtube_comments(api_key, video_id, max_comments)
+            # 내부에 설정된 API_KEY 변수를 넣어 호출
+            df = get_youtube_comments(API_KEY, video_id, max_comments)
             
             if not df.empty:
                 df["date"] = pd.to_datetime(df["date"])
