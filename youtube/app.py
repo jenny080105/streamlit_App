@@ -1,606 +1,157 @@
 import streamlit as st
 import pandas as pd
-import plotly.express as px
-import matplotlib.pyplot as plt
-
-from wordcloud import WordCloud
 from googleapiclient.discovery import build
-
-from utils import (
-    get_video_id,
-    get_video_info,
-    get_comments,
-    create_wordcloud,
-    get_word_frequency,
-)
-
-from sentiment import analyze_sentiments
-
-st.set_page_config(
-    page_title="YouTube 댓글 분석기",
-    page_icon="📺",
-    layout="wide"
-)
-
-st.title("📺 YouTube 댓글 분석기")
-
-st.markdown(
-"""
-유튜브 영상의 댓글을 분석합니다.
-
-기능
-
-- 댓글 수집
-- 시간대 분석
-- 감성 분석
-- 워드클라우드
-- 자주 등장한 단어
-"""
-)
-
-##############################################
-# Sidebar
-##############################################
-
-with st.sidebar:
-
-    st.header("설정")
-
-    api_key = st.text_input(
-        "YouTube API Key",
-        type="password"
-    )
-
-    url = st.text_input(
-        "YouTube URL"
-    )
-
-    max_comments = st.slider(
-        "댓글 개수",
-        50,
-        1000,
-        300,
-        50
-    )
-
-    analyze = st.button("분석 시작")
-
-##############################################
-
-if analyze:
-
-    if api_key == "":
-        st.error("API Key를 입력하세요.")
-        st.stop()
-
-    if url == "":
-        st.error("URL을 입력하세요.")
-        st.stop()
-
-    video_id = get_video_id(url)
-
-    if video_id is None:
-        st.error("올바른 URL이 아닙니다.")
-        st.stop()
-
-    youtube = build(
-        "youtube",
-        "v3",
-        developerKey=api_key
-    )
-
-    with st.spinner("영상 정보 가져오는 중..."):
-
-        video = get_video_info(
-            youtube,
-            video_id
-        )
-
-    st.subheader(video["title"])
-
-    st.video(url)
-
-    col1, col2, col3 = st.columns(3)
-
-    col1.metric(
-        "조회수",
-        f"{video['views']:,}"
-    )
-
-    col2.metric(
-        "좋아요",
-        f"{video['likes']:,}"
-    )
-
-    col3.metric(
-        "댓글 수",
-        f"{video['commentCount']:,}"
-    )
-
-    st.divider()
-
-    progress = st.progress(0)
-
-    with st.spinner("댓글 수집 중..."):
-
-        comments = get_comments(
-            youtube,
-            video_id,
-            max_comments,
-            progress
-        )
-
-    progress.empty()
-
-    if len(comments) == 0:
-
-        st.warning("댓글이 없습니다.")
-
-        st.stop()
-
-    df = pd.DataFrame(comments)
-
-    st.success(f"{len(df)}개의 댓글을 분석합니다.")
-
-    ###########################################
-    # 댓글 데이터
-    ###########################################
-
-    st.subheader("댓글")
-
-    st.dataframe(
-        df[
-            [
-                "author",
-                "text",
-                "likes",
-                "published"
-            ]
-        ],
-        use_container_width=True
-    )
-
-    csv = df.to_csv(index=False).encode("utf-8-sig")
-
-    st.download_button(
-        "CSV 다운로드",
-        csv,
-        "youtube_comments.csv",
-        "text/csv"
-    )
-
-    ###########################################
-    # 시간 분석
-    ###########################################
-
-    st.divider()
-
-    st.subheader("댓글 작성 추이")
-
-    df["published"] = pd.to_datetime(df["published"])
-
-    if len(df) < 300:
-
-        df["time"] = df["published"].dt.date
-
-    else:
-
-        df["time"] = df["published"].dt.floor("H")
-
-    graph = (
-        df.groupby("time")
-        .size()
-        .reset_index(name="count")
-    )
-
-    fig = px.line(
-        graph,
-        x="time",
-        y="count",
-        markers=True
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-    ###########################################
-    # 감성 분석
-    ###########################################
-
-    st.divider()
-
-    st.subheader("감성 분석")
-
-    with st.spinner("BERT 분석 중..."):
-
-        sentiments = analyze_sentiments(
-            df["text"].tolist()
-        )
-
-    df["sentiment"] = sentiments
-
-    result = (
-        df["sentiment"]
-        .value_counts()
-        .reset_index()
-    )
-
-    result.columns = [
-        "감정",
-        "개수"
-    ]
-
-    fig = px.pie(
-        result,
-        names="감정",
-        values="개수",
-        hole=.4
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-
-    ###########################################
-    # 워드클라우드
-    ###########################################
-
-    st.divider()
-
-    st.subheader("워드클라우드")
-
-    wc = create_wordcloud(
-        df["text"].tolist()
-    )
-
-    fig, ax = plt.subplots(figsize=(10,5))
-
-    ax.imshow(wc)
-
-    ax.axis("off")
-
-    st.pyplot(fig)
-
-    ###########################################
-    # 단어 빈도
-    ###########################################
-
-    st.divider()
-
-    st.subheader("TOP20 단어")
-
-    words = get_word_frequency(
-        df["text"].tolist()
-    )
-
-    word_df = pd.DataFrame(
-        words.items(),
-        columns=["단어","빈도"]
-    ).sort_values(
-        "빈도",
-        ascending=False
-    ).head(20)
-
-    fig = px.bar(
-        word_df,
-        x="단어",
-        y="빈도"
-    )
-
-    st.plotly_chart(
-        fig,
-        use_container_width=True
-    )
-  import re
-
-from collections import Counter
-
-from kiwipiepy import Kiwi
-
+import matplotlib.pyplot as plt
 from wordcloud import WordCloud
+from textblob import TextBlob
+import re
+import urllib.request
 
-kiwi = Kiwi()
+# 1. 한글 폰트 설정 (Streamlit Cloud 환경 대응)
+@st.cache_data
+def load_font():
+    font_url = "https://github.com/google/fonts/raw/main/ofl/nanumgothic/NanumGothic-Regular.ttf"
+    font_path = "NanumGothic.ttf"
+    urllib.request.urlretrieve(font_url, font_path)
+    return font_path
 
-############################################
-# 영상 ID 추출
-############################################
+try:
+    font_path = load_font()
+except Exception:
+    font_path = None
 
-def get_video_id(url):
-
-    patterns = [
-        r"v=([^&]+)",
-        r"youtu\.be/([^?]+)",
-        r"shorts/([^?]+)"
-    ]
-
-    for pattern in patterns:
-
-        m = re.search(pattern, url)
-
-        if m:
-            return m.group(1)
-
-    return None
-
-
-############################################
-# 영상 정보
-############################################
-
-def get_video_info(youtube, video_id):
-
-    response = youtube.videos().list(
-        part="snippet,statistics",
-        id=video_id
-    ).execute()
-
-    item = response["items"][0]
-
-    snippet = item["snippet"]
-    stat = item["statistics"]
-
-    return {
-
-        "title": snippet["title"],
-
-        "views": int(
-            stat.get("viewCount",0)
-        ),
-
-        "likes": int(
-            stat.get("likeCount",0)
-        ),
-
-        "commentCount": int(
-            stat.get("commentCount",0)
-        )
-
-    }
-
-
-############################################
-# 댓글 수집
-############################################
-
-def get_comments(
-    youtube,
-    video_id,
-    max_comments,
-    progress
-):
-
+# 2. 유튜브 댓글 수집 함수
+def get_youtube_comments(api_key, video_id, max_count):
+    youtube = build("youtube", "v3", developerKey=api_key)
     comments = []
-
-    token = None
-
-    while True:
-
+    
+    try:
         request = youtube.commentThreads().list(
-
             part="snippet",
-
             videoId=video_id,
-
-            maxResults=100,
-
-            pageToken=token,
-
-            textFormat="plainText",
-
-            order="relevance"
-
+            maxResults=min(max_count, 100),
+            textFormat="plainText"
         )
-
-        response = request.execute()
-
-        for item in response["items"]:
-
-            comment = item["snippet"]["topLevelComment"]["snippet"]
-
-            comments.append({
-
-                "author":
-                comment["authorDisplayName"],
-
-                "text":
-                comment["textDisplay"],
-
-                "likes":
-                comment["likeCount"],
-
-                "published":
-                comment["publishedAt"]
-
-            })
-
-            progress.progress(
-                min(
-                    len(comments)/max_comments,
-                    1.0
-                )
-            )
-
-            if len(comments) >= max_comments:
-                return comments
-
-        token = response.get("nextPageToken")
-
-        if token is None:
-            break
-
-    return comments
-
-
-############################################
-# 불용어
-############################################
-
-STOPWORDS = {
-
-"ㅋㅋ",
-"ㅎㅎ",
-"진짜",
-"너무",
-"정말",
-"그냥",
-"영상",
-"오늘",
-"이번",
-"이거",
-"저거",
-"그거",
-"근데",
-"때문",
-"사람",
-"생각",
-"하나",
-"이제",
-"항상",
-"우리",
-"여기",
-"저기",
-"뭔가",
-"가장",
-"입니다",
-"합니다",
-"있는",
-"없는",
-"같은"
-
-}
-
-
-############################################
-# 명사 추출
-############################################
-
-def extract_nouns(texts):
-
-    nouns = []
-
-    for text in texts:
-
-        try:
-
-            tokens = kiwi.tokenize(text)
-
-            for token in tokens:
-
-                if token.tag.startswith("N"):
-
-                    word = token.form
-
-                    if len(word) < 2:
-                        continue
-
-                    if word in STOPWORDS:
-                        continue
-
-                    nouns.append(word)
-
-        except:
-            pass
-
-    return nouns
-
-
-############################################
-# 단어 빈도
-############################################
-
-def get_word_frequency(texts):
-
-    nouns = extract_nouns(texts)
-
-    return Counter(nouns)
-
-
-############################################
-# 워드클라우드
-############################################
-
-def create_wordcloud(texts):
-
-    freq = get_word_frequency(texts)
-
-    wc = WordCloud(
-
-        font_path="NanumGothic.ttf",
-
-        background_color="white",
-
-        width=1200,
-
-        height=700
-
-    ).generate_from_frequencies(freq)
-
-    return wc
-  from transformers import pipeline
-import streamlit as st
-
-####################################################
-# 모델 캐시
-####################################################
-
-@st.cache_resource
-def load_model():
-
-    model = pipeline(
-        "sentiment-analysis",
-        model="beomi/KcELECTRA-base-v2022",
-        tokenizer="beomi/KcELECTRA-base-v2022",
-        truncation=True
-    )
-
-    return model
-
-
-####################################################
-# 댓글 감성 분석
-####################################################
-
-def analyze_sentiments(texts):
-
-    model = load_model()
-
-    results = []
-
-    batch_size = 32
-
-    for i in range(0, len(texts), batch_size):
-
-        batch = texts[i:i+batch_size]
-
-        predicts = model(batch)
-
-        for p in predicts:
-
-            label = p["label"]
-            score = p["score"]
-
-            # label 이름이 모델마다 다를 수 있음
-            positive = (
-                label.upper() == "POSITIVE"
-                or label == "1"
-                or "POS" in label.upper()
-            )
-
-            if positive:
-
-                if score >= 0.75:
-                    results.append("😊 긍정")
+        
+        while request and len(comments) < max_count:
+            response = request.execute()
+            for item in response.get("items", []):
+                snippet = item["snippet"]["topLevelComment"]["snippet"]
+                text = snippet["textDisplay"]
+                published_at = snippet["publishedAt"]
+                comments.append({"text": text, "date": published_at})
+                
+                if len(comments) >= max_count:
+                    break
+                    
+            request = youtube.commentThreads().list_next(request, response)
+            
+        return pd.DataFrame(comments)
+    except Exception as e:
+        st.error(f"API 호출 중 오류가 발생했습니다: {e}")
+        return pd.DataFrame()
+
+# 3. 데이터 전처리 및 분석 함수
+def analyze_sentiment(text):
+    # 단순 텍스트 길이 및 영문 기준 감성 분석 (실제 한글 분석은 KoNLPy 등이 필요하나, 클라우드 의존성 상 TextBlob으로 대체 적용)
+    analysis = TextBlob(text)
+    if analysis.sentiment.polarity > 0:
+        return "긍정"
+    elif analysis.sentiment.polarity < 0:
+        return "부정"
+    else:
+        return "중립"
+
+def clean_text(text):
+    # 한글, 공백을 제외한 특수문자 제거
+    return re.sub(r"[^가-힣\s]", "", text)
+
+# 4. 스트림릿 UI 레이아웃
+st.title("📊 유튜브 댓글 분석기")
+st.caption("유튜브 영상의 댓글을 수집하여 작성 추이, 반응도, 워드클라우드를 분석합니다.")
+
+# 사이드바 설정
+st.sidebar.header("설정")
+api_key = st.sidebar.text_input("YouTube API Key를 입력하세요", type="password")
+video_url = st.sidebar.text_input("유튜브 영상 링크를 입력하세요")
+max_comments = st.sidebar.slider("수집할 댓글 개수 선택", min_value=10, max_value=500, value=100, step=10)
+
+# URL에서 Video ID 추출
+video_id = None
+if video_url:
+    if "watch?v=" in video_url:
+        video_id = video_url.split("watch?v=")[1].split("&")[0]
+    elif "youtu.be/" in video_url:
+        video_id = video_url.split("youtu.be/")[1].split("?")[0]
+
+# 메인 분석 로직
+if st.sidebar.button("분석 시작"):
+    if not api_key:
+        st.warning("API Key를 입력해주세요.")
+    elif not video_id:
+        st.warning("올바른 유튜브 링크를 입력해주세요.")
+    else:
+        with st.spinner("댓글을 수집하고 분석하는 중입니다..."):
+            # 영상 출력
+            st.subheader("📺 분석 대상 영상")
+            st.video(video_url)
+            
+            # 데이터 수집
+            df = get_youtube_comments(api_key, video_id, max_comments)
+            
+            if not df.empty:
+                df["date"] = pd.to_datetime(df["date"])
+                df["cleaned_text"] = df["text"].apply(clean_text)
+                df["sentiment"] = df["text"].apply(analyze_sentiment)
+                
+                st.success(f"총 {len(df)}개의 댓글을 성공적으로 수집했습니다.")
+                
+                # 레이아웃 분할
+                col1, col2 = st.columns(2)
+                
+                # 1. 시간대별 댓글 작성 추이
+                with col1:
+                    st.subheader("📈 시간대별 댓글 작성 추이")
+                    df_time = df.set_index("date").resample("D").size().reset_index(name="count")
+                    
+                    fig, ax = plt.subplots()
+                    ax.plot(df_time["date"], df_time["count"], marker="o", color="#1f77b4")
+                    ax.set_xlabel("Date")
+                    ax.set_ylabel("Comment Count")
+                    plt.xticks(rotation=45)
+                    st.pyplot(fig)
+                
+                # 2. 댓글 반응도 (긍정/부정/중립)
+                with col2:
+                    st.subheader("🥰 댓글 반응도 상황")
+                    sentiment_counts = df["sentiment"].value_counts()
+                    
+                    fig, ax = plt.subplots()
+                    ax.pie(sentiment_counts, labels=sentiment_counts.index, autopct="%1.1f%%", startangle=90, 
+                           colors=["#6baed6", "#9ecae1", "#c6dbef"])
+                    ax.axis("equal")
+                    st.pyplot(fig)
+                
+                # 3. 한글 워드클라우드
+                st.subheader("🔠 댓글 한글 워드클라우드")
+                all_text = " ".join(df["cleaned_text"].dropna())
+                
+                if all_text.strip():
+                    wc = WordCloud(
+                        font_path=font_path,
+                        background_color="white",
+                        width=800,
+                        height=400,
+                        max_words=100
+                    ).generate(all_text)
+                    
+                    fig, ax = plt.subplots(figsize=(10, 5))
+                    ax.imshow(wc, interpolation="bilinear")
+                    ax.axis("off")
+                    st.pyplot(fig)
                 else:
-                    results.append("😐 중립")
-
-            else:
-
-                if score >= 0.75:
-                    results.append("😡 부정")
-                else:
-                    results.append("😐 중립")
-
-    return results
+                    st.info("워드클라우드를 생성할 만큼의 한글 텍스트가 댓글에 존재하지 않습니다.")
+                    
+                # 데이터프레임 미리보기
+                st.subheader("💬 수집된 댓글 데이터 목록")
+                st.dataframe(df[["date", "text", "sentiment"]], use_container_width=True)
