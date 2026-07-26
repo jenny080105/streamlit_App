@@ -1,21 +1,22 @@
 import streamlit as st
-import base64
-import anthropic
+import google.generativeai as genai
 from gtts import gTTS
 from io import BytesIO
+from PIL import Image
 
 st.set_page_config(page_title="사진 설명 도우미", page_icon="📷")
 
 st.title("📷 사진 설명 도우미")
 st.write("사진을 찍거나 업로드하면 AI가 장면을 설명해줍니다.")
 
-api_key = st.secrets.get("ANTHROPIC_API_KEY", None)
+api_key = st.secrets.get("GOOGLE_API_KEY", None)
 
 if not api_key:
-    st.error("API 키가 설정되지 않았습니다. secrets에 ANTHROPIC_API_KEY를 추가해주세요.")
+    st.error("API 키가 설정되지 않았습니다. secrets에 GOOGLE_API_KEY를 추가해주세요.")
     st.stop()
 
-client = anthropic.Anthropic(api_key=api_key)
+genai.configure(api_key=api_key)
+model = genai.GenerativeModel("gemini-2.5-flash")
 
 input_method = st.radio("사진 입력 방법을 선택하세요", ["카메라로 촬영", "파일 업로드"])
 
@@ -26,40 +27,17 @@ else:
     image_file = st.file_uploader("사진 파일을 선택하세요", type=["jpg", "jpeg", "png"])
 
 
-def analyze_image(image_bytes: bytes, media_type: str) -> str:
-    image_b64 = base64.standard_b64encode(image_bytes).decode("utf-8")
-
-    message = client.messages.create(
-        model="claude-sonnet-4-6",
-        max_tokens=500,
-        messages=[
-            {
-                "role": "user",
-                "content": [
-                    {
-                        "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": media_type,
-                            "data": image_b64,
-                        },
-                    },
-                    {
-                        "type": "text",
-                        "text": (
-                            "이 사진을 시각장애인에게 설명한다고 생각하고 한국어로 설명해줘. "
-                            "다음 순서를 지켜줘: "
-                            "1) 즉각적인 위험이나 장애물이 있다면 가장 먼저 말할 것 "
-                            "2) 그다음 눈에 띄는 텍스트(표지판, 안내문 등)가 있다면 읽어줄 것 "
-                            "3) 마지막으로 전반적인 장면을 간단히 설명할 것. "
-                            "불필요한 수식어 없이 간결하고 명확한 문장으로 작성해줘."
-                        ),
-                    },
-                ],
-            }
-        ],
+def analyze_image(image: Image.Image) -> str:
+    prompt = (
+        "이 사진을 시각장애인에게 설명한다고 생각하고 한국어로 설명해줘. "
+        "다음 순서를 지켜줘: "
+        "1) 즉각적인 위험이나 장애물이 있다면 가장 먼저 말할 것 "
+        "2) 그다음 눈에 띄는 텍스트(표지판, 안내문 등)가 있다면 읽어줄 것 "
+        "3) 마지막으로 전반적인 장면을 간단히 설명할 것. "
+        "불필요한 수식어 없이 간결하고 명확한 문장으로 작성해줘."
     )
-    return message.content[0].text
+    response = model.generate_content([prompt, image])
+    return response.text
 
 
 def text_to_speech(text: str) -> BytesIO:
@@ -75,12 +53,8 @@ if image_file is not None:
 
     if st.button("설명 듣기"):
         with st.spinner("사진을 분석하는 중..."):
-            image_bytes = image_file.getvalue()
-            media_type = "image/jpeg"
-            if hasattr(image_file, "type") and image_file.type:
-                media_type = image_file.type
-
-            description = analyze_image(image_bytes, media_type)
+            image = Image.open(image_file)
+            description = analyze_image(image)
 
         st.subheader("설명 결과")
         st.write(description)
