@@ -1,5 +1,5 @@
 import streamlit as st
-import google.generativeai as genai
+from google import genai
 from gtts import gTTS
 from io import BytesIO
 from PIL import Image
@@ -15,8 +15,7 @@ if not api_key:
     st.error("API 키가 설정되지 않았습니다. secrets에 GOOGLE_API_KEY를 추가해주세요.")
     st.stop()
 
-genai.configure(api_key=api_key)
-model = genai.GenerativeModel("gemini-2.5-flash")
+client = genai.Client(api_key=api_key)
 
 input_method = st.radio("사진 입력 방법을 선택하세요", ["카메라로 촬영", "파일 업로드"])
 
@@ -36,7 +35,10 @@ def analyze_image(image: Image.Image) -> str:
         "3) 마지막으로 전반적인 장면을 간단히 설명할 것. "
         "불필요한 수식어 없이 간결하고 명확한 문장으로 작성해줘."
     )
-    response = model.generate_content([prompt, image])
+    response = client.models.generate_content(
+        model="gemini-2.5-flash",
+        contents=[prompt, image],
+    )
     return response.text
 
 
