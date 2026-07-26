@@ -36,7 +36,7 @@ def analyze_image(image: Image.Image) -> str:
         "불필요한 수식어 없이 간결하고 명확한 문장으로 작성해줘."
     )
     response = client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.6-flash",
         contents=[prompt, image],
     )
     return response.text
